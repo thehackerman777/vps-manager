@@ -1,0 +1,43 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database
+*.db
+*.sqlite
+
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# IDE / Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# PEM keys (keep them OUT of the repo!)
+*.pem
+*.key
+*.p12
+
+# Build / dist
+dist/
+build/
+*.egg-info/
+
+# Logs
+*.log
+logs/
+
+# OS junk
+.DS_Store
+Thumbs.db
