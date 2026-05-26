@@ -1,21 +1,30 @@
 """Main window for the VPS Manager application."""
 import logging
 import os
-import sqlite3
-from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtGui import QColor, QFont, QTextCursor
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTableWidget, QTableWidgetItem, QPushButton, QTextEdit,
-    QLineEdit, QLabel, QTabWidget, QMessageBox, QFileDialog,
-    QHeaderView, QSplitter, QGroupBox, QStatusBar,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
+from src.ansi_parser import AnsiConsoleParser
 from src.database import DatabaseManager
-from src.ssh_worker import SSHWorker
 from src.dialogs import AddServerDialog
+from src.ssh_worker import SSHWorker
 
 logger = logging.getLogger(__name__)
 
@@ -26,11 +35,12 @@ class VPSManagerApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("VPS Manager")
-        self.setGeometry(100, 100, 1280, 800)
+        self.setGeometry(100, 100, 1300, 820)
 
         self.db_manager = DatabaseManager()
         self.ssh_worker: SSHWorker | None = None
         self.current_server_id: int | None = None
+        self._ansi_parser: AnsiConsoleParser | None = None
 
         self._build_ui()
         self.load_servers()
@@ -46,9 +56,12 @@ class VPSManagerApp(QMainWindow):
         # ─── Left panel: server list ──────────────────────────────
         left = QWidget()
         left_layout = QVBoxLayout()
+        left_layout.setContentsMargins(12, 12, 6, 12)
+        left_layout.setSpacing(8)
         left.setLayout(left_layout)
 
-        left_layout.addWidget(QLabel("<b>Servers</b>"))
+        servers_label = QLabel("Servers")
+        left_layout.addWidget(servers_label)
 
         self.server_table = QTableWidget()
         self.server_table.setColumnCount(5)
@@ -62,17 +75,20 @@ class VPSManagerApp(QMainWindow):
         self.server_table.setSelectionMode(
             QTableWidget.SelectionMode.SingleSelection
         )
+        self.server_table.setAlternatingRowColors(True)
+        self.server_table.verticalHeader().setVisible(False)
         self.server_table.itemSelectionChanged.connect(self._on_server_selected)
         left_layout.addWidget(self.server_table, stretch=1)
 
         # Server action buttons
         btn_row = QHBoxLayout()
-        self.add_btn = QPushButton("➕ Add")
+        btn_row.setSpacing(6)
+        self.add_btn = QPushButton("➕  Add")
         self.add_btn.clicked.connect(self.add_server)
-        self.edit_btn = QPushButton("✏️ Edit")
+        self.edit_btn = QPushButton("✏️  Edit")
         self.edit_btn.clicked.connect(self.edit_server)
         self.edit_btn.setEnabled(False)
-        self.delete_btn = QPushButton("🗑️ Delete")
+        self.delete_btn = QPushButton("🗑️  Delete")
         self.delete_btn.clicked.connect(self.delete_server)
         self.delete_btn.setEnabled(False)
         btn_row.addWidget(self.add_btn)
@@ -80,7 +96,7 @@ class VPSManagerApp(QMainWindow):
         btn_row.addWidget(self.delete_btn)
         left_layout.addLayout(btn_row)
 
-        left.setMinimumWidth(320)
+        left.setMinimumWidth(340)
         splitter.addWidget(left)
 
         # ─── Right panel: tabs ────────────────────────────────────
@@ -89,49 +105,68 @@ class VPSManagerApp(QMainWindow):
         # ── Console tab ───────────────────────────────────────────
         console_tab = QWidget()
         console_layout = QVBoxLayout()
+        console_layout.setContentsMargins(12, 12, 12, 12)
+        console_layout.setSpacing(8)
         console_tab.setLayout(console_layout)
 
+        console_label = QLabel("Terminal Output")
+        console_layout.addWidget(console_label)
+
         self.console_output = QTextEdit()
+        self.console_output.setObjectName("console_output")
         self.console_output.setReadOnly(True)
-        self.console_output.setFont(QFont("Consolas", 10))
+        self.console_output.setFont(QFont("Cascadia Code", 12))
         self.console_output.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        console_layout.addWidget(QLabel("Console Output:"))
+        # Dark terminal background color
+        palette = self.console_output.palette()
+        palette.setColor(palette.ColorRole.Base, QColor("#010409"))
+        self.console_output.setPalette(palette)
         console_layout.addWidget(self.console_output, stretch=1)
 
         # Connection bar
         conn_row = QHBoxLayout()
-        self.connect_btn = QPushButton("🔌 Connect")
+        conn_row.setSpacing(8)
+        self.connect_btn = QPushButton("🔌  Connect")
+        self.connect_btn.setObjectName("connect_btn")
         self.connect_btn.clicked.connect(self.connect_to_server)
         self.connect_btn.setEnabled(False)
-        self.disconnect_btn = QPushButton("⛔ Disconnect")
+        self.disconnect_btn = QPushButton("⛔  Disconnect")
+        self.disconnect_btn.setObjectName("disconnect_btn")
         self.disconnect_btn.clicked.connect(self.disconnect_from_server)
         self.disconnect_btn.setEnabled(False)
+        self.clear_btn = QPushButton("🧹  Clear")
+        self.clear_btn.clicked.connect(self.console_output.clear)
         conn_row.addWidget(self.connect_btn)
         conn_row.addWidget(self.disconnect_btn)
+        conn_row.addWidget(self.clear_btn)
         conn_row.addStretch()
         console_layout.addLayout(conn_row)
 
         # Command input
         input_row = QHBoxLayout()
+        input_row.setSpacing(6)
         self.console_input = QLineEdit()
+        self.console_input.setObjectName("console_input")
         self.console_input.setPlaceholderText("Enter command… (press Enter to send)")
         self.console_input.returnPressed.connect(self._send_console_command)
         self.console_input.setEnabled(False)
-        self.send_btn = QPushButton("Send")
+        self.send_btn = QPushButton("Send ↵")
         self.send_btn.clicked.connect(self._send_console_command)
         self.send_btn.setEnabled(False)
         input_row.addWidget(self.console_input, stretch=1)
         input_row.addWidget(self.send_btn)
         console_layout.addLayout(input_row)
 
-        self.tabs.addTab(console_tab, "Console")
+        self.tabs.addTab(console_tab, "  🖥  Console  ")
 
         # ── Scripts tab ────────────────────────────────────────────
         scripts_tab = QWidget()
         scripts_layout = QVBoxLayout()
+        scripts_layout.setContentsMargins(12, 12, 12, 12)
+        scripts_layout.setSpacing(8)
         scripts_tab.setLayout(scripts_layout)
 
-        scripts_layout.addWidget(QLabel("Associated Scripts:"))
+        scripts_layout.addWidget(QLabel("Associated Scripts"))
         self.script_list = QTableWidget()
         self.script_list.setColumnCount(2)
         self.script_list.setHorizontalHeaderLabels(["Name", "Description"])
@@ -139,42 +174,50 @@ class VPSManagerApp(QMainWindow):
         self.script_list.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
         )
+        self.script_list.setAlternatingRowColors(True)
+        self.script_list.verticalHeader().setVisible(False)
         self.script_list.itemSelectionChanged.connect(self._on_script_selected)
         scripts_layout.addWidget(self.script_list, stretch=1)
 
         script_btn_row = QHBoxLayout()
-        self.add_script_btn = QPushButton("📄 Add Script")
+        script_btn_row.setSpacing(6)
+        self.add_script_btn = QPushButton("📄  Add Script")
         self.add_script_btn.clicked.connect(self.add_script)
         self.add_script_btn.setEnabled(False)
-        self.execute_script_btn = QPushButton("▶️ Execute")
+        self.execute_script_btn = QPushButton("▶  Execute")
+        self.execute_script_btn.setObjectName("execute_btn")
         self.execute_script_btn.clicked.connect(self.execute_script)
         self.execute_script_btn.setEnabled(False)
         script_btn_row.addWidget(self.add_script_btn)
         script_btn_row.addWidget(self.execute_script_btn)
+        script_btn_row.addStretch()
         scripts_layout.addLayout(script_btn_row)
 
         # Script editor
-        scripts_layout.addWidget(QLabel("Script Editor:"))
+        scripts_layout.addWidget(QLabel("Script Editor"))
         self.script_editor = QTextEdit()
-        self.script_editor.setFont(QFont("Consolas", 10))
+        self.script_editor.setFont(QFont("Cascadia Code", 12))
         scripts_layout.addWidget(self.script_editor, stretch=1)
 
         editor_btn_row = QHBoxLayout()
-        self.save_btn = QPushButton("💾 Save")
+        editor_btn_row.setSpacing(6)
+        self.save_btn = QPushButton("💾  Save")
         self.save_btn.clicked.connect(self.save_script)
-        self.load_btn = QPushButton("📂 Load")
+        self.load_btn = QPushButton("📂  Load File")
         self.load_btn.clicked.connect(self.load_script_from_file)
         editor_btn_row.addWidget(self.save_btn)
         editor_btn_row.addWidget(self.load_btn)
+        editor_btn_row.addStretch()
         scripts_layout.addLayout(editor_btn_row)
 
-        self.tabs.addTab(scripts_tab, "Scripts")
+        self.tabs.addTab(scripts_tab, "  📜  Scripts  ")
 
         splitter.addWidget(self.tabs)
-        splitter.setSizes([350, 930])
+        splitter.setSizes([360, 940])
 
         # Main layout
         main_layout = QHBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.addWidget(splitter)
         central.setLayout(main_layout)
 
@@ -200,7 +243,7 @@ class VPSManagerApp(QMainWindow):
             self.server_table.setItem(row, 3, QTableWidgetItem(username))
             self.server_table.setItem(row, 4, QTableWidgetItem(desc or ""))
 
-        # Reset selection-dependent buttons
+        self.server_table.resizeColumnsToContents()
         self._clear_selection_state()
 
     def _on_server_selected(self):
@@ -254,7 +297,6 @@ class VPSManagerApp(QMainWindow):
         srv = self.db_manager.get_server(self.current_server_id)
         if not srv:
             return
-        # srv = (id, name, ip, username, pem_path, port, description)
         data = {
             "name": srv[1],
             "ip": srv[2],
@@ -296,6 +338,7 @@ class VPSManagerApp(QMainWindow):
             self.script_list.setItem(row, 0, item)
             self.script_list.setItem(row, 1, QTableWidgetItem(desc or ""))
 
+        self.script_list.resizeColumnsToContents()
         self.execute_script_btn.setEnabled(False)
 
     def _on_script_selected(self):
@@ -318,10 +361,7 @@ class VPSManagerApp(QMainWindow):
             QMessageBox.information(self, "Success", "Script added.")
 
     def execute_script(self):
-        """Execute selected script on the remote server.
-        
-        FIX: Uploads the script content via SFTP, then runs it remotely.
-        """
+        """Upload and execute selected script on the remote server via SFTP."""
         row = self.script_list.currentRow()
         if row < 0 or not self.current_server_id:
             return
@@ -333,22 +373,31 @@ class VPSManagerApp(QMainWindow):
         script_id, local_script_path = data
 
         if not os.path.isfile(local_script_path):
-            QMessageBox.warning(self, "File Error", f"Script not found:\n{local_script_path}")
+            QMessageBox.warning(
+                self, "File Error", f"Script not found:\n{local_script_path}"
+            )
             return
 
-        # Read the script content
+        # Read the script with explicit UTF-8 encoding to avoid charmap errors
         try:
-            with open(local_script_path) as f:
+            with open(local_script_path, encoding="utf-8") as f:
                 script_content = f.read()
+        except UnicodeDecodeError:
+            # Fallback: try latin-1 (reads any byte sequence)
+            try:
+                with open(local_script_path, encoding="latin-1") as f:
+                    script_content = f.read()
+            except Exception as e:
+                QMessageBox.warning(self, "Read Error", str(e))
+                return
         except Exception as e:
             QMessageBox.warning(self, "Read Error", str(e))
             return
 
-        # Build remote path
         script_name = os.path.basename(local_script_path)
         remote_path = f"/tmp/vpsm_{script_name}"
 
-        # Ensure we're connected; if not, connect first
+        # Ensure we're connected; if not, offer to connect
         if not (self.ssh_worker and self.ssh_worker.is_connected()):
             reply = QMessageBox.question(
                 self, "Not Connected",
@@ -358,12 +407,13 @@ class VPSManagerApp(QMainWindow):
             if reply != QMessageBox.StandardButton.Yes:
                 return
             self.connect_to_server()
+            # Give worker a moment to connect before queuing the script
+            self.msleep_after_connect = True
 
-        # Send script via interactive shell
         if self.ssh_worker and self.ssh_worker.is_connected():
             self.ssh_worker.execute_script(script_content, remote_path)
             self.tabs.setCurrentIndex(0)  # Switch to console tab
-            self.statusBar().showMessage(f"Executing {script_name} on server…")
+            self.statusBar().showMessage(f"Uploading & executing {script_name}…")
 
     def save_script(self):
         file_path, _ = QFileDialog.getSaveFileName(
@@ -371,7 +421,7 @@ class VPSManagerApp(QMainWindow):
         )
         if file_path:
             try:
-                with open(file_path, "w") as f:
+                with open(file_path, "w", encoding="utf-8") as f:
                     f.write(self.script_editor.toPlainText())
                 QMessageBox.information(self, "Success", "Script saved.")
             except Exception as e:
@@ -383,8 +433,14 @@ class VPSManagerApp(QMainWindow):
         )
         if file_path:
             try:
-                with open(file_path) as f:
+                with open(file_path, encoding="utf-8") as f:
                     self.script_editor.setPlainText(f.read())
+            except UnicodeDecodeError:
+                try:
+                    with open(file_path, encoding="latin-1") as f:
+                        self.script_editor.setPlainText(f.read())
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", str(e))
             except Exception as e:
                 QMessageBox.warning(self, "Error", str(e))
 
@@ -403,6 +459,10 @@ class VPSManagerApp(QMainWindow):
         if not os.path.isfile(pem_path):
             QMessageBox.warning(self, "File Error", f"PEM file not found:\n{pem_path}")
             return
+
+        # Re-initialise the ANSI parser bound to the (cleared) console
+        self.console_output.clear()
+        self._ansi_parser = AnsiConsoleParser(self.console_output)
 
         self.ssh_worker = SSHWorker(ip, port, username, pem_path)
         self.ssh_worker.output_received.connect(self._append_console)
@@ -461,11 +521,14 @@ class VPSManagerApp(QMainWindow):
         self.console_input.clear()
 
     def _append_console(self, text: str):
-        self.console_output.moveCursor(QTextCursor.MoveOperation.End)
-        self.console_output.insertPlainText(text)
-        # Keep the view scrolled to the bottom
-        sb = self.console_output.verticalScrollBar()
-        sb.setValue(sb.maximum())
-
-    # ── Convenience ───────────────────────────────────────────────
-    # self.tabs is set in _build_ui as the QTabWidget
+        """Route raw terminal data through the ANSI parser."""
+        if self._ansi_parser:
+            self._ansi_parser.feed(text)
+        else:
+            # Fallback: plain insert (e.g. before first connection)
+            cursor = self.console_output.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            cursor.insertText(text)
+            self.console_output.setTextCursor(cursor)
+            sb = self.console_output.verticalScrollBar()
+            sb.setValue(sb.maximum())

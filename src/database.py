@@ -1,7 +1,6 @@
 """Database manager using SQLite for server and script storage."""
-import sqlite3
 import logging
-import os
+import sqlite3
 from pathlib import Path
 
 logger = logging.getLogger(__name__)

@@ -1,9 +1,13 @@
 """Dialog for adding/editing VPS server configurations."""
-import os
 from PySide6.QtWidgets import (
-    QDialog, QFormLayout, QHBoxLayout, QVBoxLayout,
-    QLineEdit, QPushButton, QSpinBox, QDialogButtonBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
 )
 
 
