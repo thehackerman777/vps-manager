@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QTextCursor
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QPushButton, QTextEdit,
@@ -461,10 +461,11 @@ class VPSManagerApp(QMainWindow):
         self.console_input.clear()
 
     def _append_console(self, text: str):
-        self.console_output.moveCursor(
-            self.console_output.textCursor().End
-        )
+        self.console_output.moveCursor(QTextCursor.MoveOperation.End)
         self.console_output.insertPlainText(text)
+        # Keep the view scrolled to the bottom
+        sb = self.console_output.verticalScrollBar()
+        sb.setValue(sb.maximum())
 
     # ── Convenience ───────────────────────────────────────────────
     # self.tabs is set in _build_ui as the QTabWidget
